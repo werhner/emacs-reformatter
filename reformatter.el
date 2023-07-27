@@ -96,8 +96,7 @@ the `reformatter-define' macro."
              (string= (file-truename input-file)
                       (file-truename (buffer-file-name))))
     (error "The reformatter must not operate on the current file in-place"))
-  (let* ((stderr-file (reformatter--make-temp-file name))
-         (stdout-file (reformatter--make-temp-file name))
+  (let* ((stdout-file (reformatter--make-temp-file name))
          ;; Setting this coding system might not universally be
          ;; the best default, but was apparently necessary for
          ;; some hand-rolled reformatter functions that this
@@ -108,21 +107,23 @@ the `reformatter-define' macro."
         (progn
           (write-region beg end input-file nil :quiet)
           (let* ((error-buffer (get-buffer-create (format "*%s errors*" name)))
+                 (output-buffer (get-buffer-create (format "*%s output*" name)))
                  (retcode
                   (condition-case e
-                      (apply 'call-process program
+                      (apply 'process-file program
                              (when stdin input-file)
-                             (list (list :file stdout-file) stderr-file)
+                             (list output-buffer error-buffer)
                              nil
                              args)
                     (error e))))
             (with-current-buffer error-buffer
               (let ((inhibit-read-only t))
-                (insert-file-contents stderr-file nil nil nil t)
                 (unless (integerp retcode)
                   (insert (error-message-string retcode)))
                 (ansi-color-apply-on-region (point-min) (point-max)))
               (special-mode))
+            (with-current-buffer output-buffer
+              (write-region (point-min) (point-max) stdout-file nil :quiet))
             (if (and (integerp retcode) (funcall exit-code-success-p retcode))
                 (progn
                   (save-restriction
@@ -133,12 +134,12 @@ the `reformatter-define' macro."
                     (reformatter-replace-buffer-contents-from-file (if stdout
                                                                        stdout-file
                                                                      input-file)))
+                  (kill-buffer output-buffer)
                   ;; If there are no errors then we hide the error buffer
                   (delete-windows-on error-buffer))
               (if display-errors
                   (display-buffer error-buffer)
                 (message (concat (symbol-name name) " failed: see %s") (buffer-name error-buffer))))))
-      (delete-file stderr-file)
       (delete-file stdout-file))))
 
 ;;;###autoload
